@@ -1,0 +1,812 @@
+﻿Public pUFT
+Set pUFT = CreateObject("QuickTest.Application") 
+
+Class OpenUFT
+	Private sub Class_Initialize
+	End Sub
+	Private sub Class_Terminate
+		'Opens UFT
+		pUFT.visible = True
+	End  Sub
+End Class
+
+Public uftinstance
+Set  uftinstance = New OpenUFT
+
+'Minimize UFT
+Function PositionBrowser()
+	pUFT.Visible = false
+End Function
+
+'Open Browser and PDRM link
+Function launchWebpage()
+	SystemUtil.Run "msedge.exe", "https://dezulbigap008.emea.porsche.biz/login"
+End Function
+
+'Stores Values of CSV file into an array and returns it to the Testscript
+Function CsvColumnToArray(FileName)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "CsvColumnToArray"
+        Const FolderPath = "C:\Users\U5UI5TU\Documents\PDRM_Project\CSV\"
+        Const ColumnIndex = 1 ' zero-based
+	Const ColumnSeparator = ","
+    	Dim fso: Set fso = CreateObject("Scripting.FileSystemObject")
+
+    	If Not fso.FolderExists(FolderPath) Then
+        	MsgBox "The path """ & FolderPath & """ doesn't exist!", _
+            	vbCritical, FUNCTIONNAME
+        	Exit Function
+    	End If
+    
+    	Dim FilePath: FilePath = FolderPath & FileName
+
+    	If Not fso.FileExists(FilePath) Then
+        	MsgBox "The file """ & FileName & """ doesn't exist in """ _
+           	& FolderPath & """!", vbCritical, FUNCTIONNAME
+        	Exit Function
+    	End If
+
+    	Dim n: n = 0
+    	Dim WasLineFound: WasLineFound = False
+
+    	Dim fsoFile: Set fsoFile = fso.OpenTextFile(FilePath)
+
+    	Dim ArrSplit, ArrResult(), CurrentLine, CurrentString, HadStringLength
+
+    	Do While Not fsoFile.AtEndOfStream
+        	CurrentLine = fsoFile.ReadLine
+        	HadStringLength = False
+        	If Len(CurrentLine) > 0 Then
+            		ArrSplit = Split(CurrentLine, ColumnSeparator)
+	            	If UBound(ArrSplit) >= ColumnIndex Then
+	            		CurrentString = ArrSplit(ColumnIndex)
+	                	If Len(CurrentString) > 0 Then
+	                    		ReDim Preserve ArrResult(n): ArrResult(n) = CurrentString
+	                    		HadStringLength = True
+	                	End If
+	            	End If
+        	End If
+	        If Not WasLineFound Then
+	            If n > 0 Or Len(CurrentLine) > 0 Then WasLineFound = True
+	        End If
+        	n = n + 1
+    	Loop
+
+    	fsoFile.Close
+
+    	If Not WasLineFound Then
+        	MsgBox "No data found in """ & FilePath & """!", _
+        	vbCritical, FUNCTIONNAME
+        	Exit Function
+   	 End If
+
+    	If Not HadStringLength Then ReDim Preserve ArrResult(n - 1)
+    
+    	CsvColumnToArray = ArrResult
+
+End Function
+
+'Adds an item into an array
+Function AddItem(arr, val)
+	ReDim Preserve arr(UBound(arr) + 1)
+	arr(UBound(arr)) = val    
+	AddItem = arr
+End Function
+
+'Handles all the editfields on the website
+Function WebEditHandleParam(oObject, sParameter)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "WebEditHandleParam"
+	Dim bReturn : bReturn = False
+	Dim sKeyWord, sAttributeValue, sTempText, regexForKeywords
+	
+	regexForKeywords = "<([a-zA-Z0-9]+)(.*)>"
+	
+	'Gets the keyword from the parameter through regexp comparison 
+	sKeyWord = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 1)
+	
+	'Function ends if the keyword is skip
+	If sKeyWord = "skip" Then
+		WebEditHandleParam = True
+		Exit Function
+	Else
+		If sKeyWord = "load" Then
+			regexForParameterList = "\s([a-zA-Z0-9]+)=""""([a-zA-Z0-9\säöüÄÖÜß\/_.:-]*)"""""
+		Else
+			regexForParameterList = "\s([a-zA-Z0-9]+)=""""([a-zA-Z0-9\säöüÄÖÜß\/_.:-]*)"""""
+		End If
+		'Gets the Attribute with its value
+		sParameterlist = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 2)
+		'Gets the number of successful comparisons found
+		iCount = HLP_STRING_Output_RegexMatchCount(sParameter, regexForParameterList)
+		Dim dictParameters 
+		Set dictParameters = CreateObject("Scripting.Dictionary")
+		
+		'Saves the Attribute and its Value as Key Value in a Dictionary
+		For Iterator = 1 To iCount Step 1
+			key = HLP_STRING_Output_RegexGroup(sParameter, regexForParameterList, iterator, 1)
+			value = HLP_STRING_Output_RegexGroup(sParameter, regexForParameterList, iterator, 2)
+			dictParameters.add key, value
+		Next
+		
+		If Len(sKeyWord) = 0 Then
+			'If no keyword is found then the value will be set directly into the field
+			oObject.Set(sParameter)
+			bReturn = True
+		Else
+			Select Case sKeyWord
+				Case "set", "load"
+					bReturn = KeywordSet(oObject, dictParameters)
+				Case Else
+					Reporter.ReportEvent micFail, "WebEditHandleParam", "Unknown Keyword found!"
+			End Select
+		End If
+	End If
+	
+	If isObject (bReturn) Then
+		Set WebEditHandleParam = bReturn
+	Else
+		WebEditHandleParam = bReturn
+	End If
+End Function
+RegisterUserFunc "WebEdit","HandleParam","WebEditHandleParam"
+RegisterUserFunc "WebNumber","HandleParam","WebEditHandleParam"
+RegisterUserFunc "WinEdit","HandleParam","WebEditHandleParam"
+
+'Handels all the buttons on the website
+Function WebButtonHandleParam(oObject, sParameter)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "WebButtonHandleParam"
+	Dim bReturn : bReturn = False
+	
+	regexForKeywords = "<([a-zA-Z0-9]+)>"
+	
+	'Gets the keyword from the parameter through regexp comparison 
+	sKeyWord = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 1)
+	
+	'Function ends if the keyword is skip
+	If sKeyWord = "skip" Then
+		WebButtonHandleParam = True
+		Exit Function
+	Else
+		If Len(sKeyWord) = 0 Then
+			'No Keyword -> Error
+			Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Keyword not found!"
+		Else
+			Select Case sKeyWord
+				Case "click"
+					'Click on the object
+					KeywordClick oObject, ""
+				Case Else
+					Reporter.ReportEvent micFail,  Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown Keyword found!"
+			End Select
+		End If
+	End If
+	
+	WebButtonHandleParam = bReturn
+End Function
+RegisterUserFunc "WebButton","HandleParam","WebButtonHandleParam"
+RegisterUserFunc "WinButton","HandleParam","WebButtonHandleParam"
+
+
+'Handles all the WebElements on the website
+Function WebElementHandleParam(oObject, sParameter)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "WebElementHandleParam"
+	Dim bReturn : bReturn = False
+	
+	Dim dictParameters 
+	Set dictParameters = CreateObject("Scripting.Dictionary")
+	
+	regexForKeywords = "<([a-zA-Z0-9]+)(.*)>"
+	regexForRegexCompare = "\s([a-zA-Z0-9]+)="""".*([a-zA-Z0-9]+).*"""""
+	regexForTextCompare = "\s([a-zA-Z0-9]+)=""""([a-zA-Z0-9\säöüÄÖÜß_\/.-]*)"""""
+	
+	'Gets the keyword from the parameter through regexp comparison 
+	sKeyWord = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 1)
+	'Gets the Attribute with its value
+	sParameterlist = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 2)
+	
+	'Function ends if the keyword is skip
+	If sKeyWord = "skip" Then
+		WebElementHandleParam = True
+		Exit Function
+	Else
+		If sKeyWord = "click" Then
+			'Click on the object
+			KeywordClick oObject, ""
+		Else
+			If Instr(sParameterlist, "text") Then
+				'Gets the number of successful comparisons found
+				iCount = HLP_STRING_Output_RegexMatchCount(sParameterlist, regexForTextCompare)
+			
+				'Saves the Attribute and its Value as Key Value in a Dictionary
+				For Iterator = 1 To iCount Step 1
+					key = HLP_STRING_Output_RegexGroup(sParameter, regexForTextCompare, Iterator, 1)
+					value = HLP_STRING_Output_RegexGroup(sParameter, regexForTextCompare, Iterator, 2)
+					dictParameters.add key, value
+				Next
+			
+				'Gets the keys stored in the dictionary
+				sAttributes = dictparameters.Keys
+				'Gets the first key
+				sAttribute = sAttributes(0)
+				
+				'Gets the value stored in the dictionary against that key
+				sValue = dictparameters.Item(sAttribute)
+			Else
+				'Gets the number of successful comparisons found
+				iCount = HLP_STRING_Output_RegexMatchCount(sParameterlist, regexForRegexCompare)
+				
+				'Saves the Attribute and its Value as Key Value in a Dictionary
+				For Iterator = 1 To iCount Step 1
+					key = HLP_STRING_Output_RegexGroup(sParameter, regexForRegexCompare, Iterator, 1)
+					value = HLP_STRING_Output_RegexGroup(sParameter, regexForRegexCompare, Iterator, 2)
+					dictParameters.add key, value
+				Next
+				
+				'Gets the keys stored in the dictionary
+				sAttributes = dictparameters.Keys
+				'Gets the first key
+				sAttribute = sAttributes(0)
+				
+				'Gets the value stored in the dictionary against that key
+				sValue = dictparameters.Item(sAttribute)
+			End If
+			
+			If Len(sKeyWord) = 0 Then
+				'No Keyword -> Error
+				Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Keyword not found!"
+			Else
+				Select Case sKeyWord
+					Case "compare"
+						If sAttribute = "regexp" Then
+							'Gets the result as true if match found and false if not found
+							bReturn = KeywordCompare(oObject, "regexp", sParameter, "innertext", sValue)
+						ElseIf sAttribute = "text" Then
+							'Gets the result as true if match with text found and false if not found
+							bReturn = KeywordCompare(oObject, "text", sParameter, "innertext", sValue)
+						Else
+							Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown parameter for the given keyword!"
+						End If
+					Case Else
+						Reporter.ReportEvent micFail,  Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown Keyword found!"
+				End Select
+			End If
+		End If
+	End If
+		
+	WebElementHandleParam = bReturn
+End Function
+RegisterUserFunc "WebElement","HandleParam","WebElementHandleParam"
+
+'Handles all the dropdowns from an edit field
+Function WebEditHandleParamDropDown(oObject, sParameter)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "WebEditHandleParamDropDown"
+	Dim bReturn : bReturn = False
+	
+	regexForKeywords = "<([a-zA-Z0-9]+)(.*)>"
+	regexForParameterList = "\s([a-zA-Z0-9]+)=""""([a-zA-Z0-9 ]+)"""""
+	
+	'Gets the keyword from the parameter through regexp comparison 
+	sKeyWord = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 1)
+	
+	'Function ends if the keyword is skip
+	If sKeyWord = "skip" Then
+		WebEditHandleParamDropDown = True
+		Exit Function
+	Else
+		'Gets the Attribute with its value
+		sParameterlist = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 2)
+		'Gets the number of successful comparisons found
+		iCount = HLP_STRING_Output_RegexMatchCount(sParameterlist, regexForParameterList)
+		Dim dictParameters 
+		Set dictParameters = CreateObject("Scripting.Dictionary")
+		
+		'Saves the Attribute and its Value as Key Value in a Dictionary
+		For Iterator = 1 To iCount Step 1
+			key = HLP_STRING_Output_RegexGroup(sParameter, regexForParameterList, Iterator, 1)
+			value = HLP_STRING_Output_RegexGroup(sParameter, regexForParameterList, Iterator, 2)
+			dictParameters.add key, value
+		Next
+		
+		'Gets the keys stored in the dictionary
+		sAttributes = dictparameters.Keys
+		'Gets the first key
+		sAttribute = sAttributes(0)
+		
+		'Gets the value stored in the dictionary against that key
+		sValue = dictparameters.Item(sAttribute)
+		If Len(sKeyWord) = 0 Then
+			'No Keyword -> Error
+			Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Keyword not found!"
+		Else
+			Select Case sKeyWord
+				Case "select"
+					If sAttribute = "text" Then
+						Dim oParent, oDescription
+						'Clicks the edit field
+						KeywordClick oObject, ""
+						
+						'Gets the parent element from the object hierarchy
+						Set oParent = oObject.GetTOProperty("Parent")
+						
+						oParent.Sync
+						
+						Wait(2)
+						
+						'Identifies the entries dynamically over the index
+						Set oDescription = Description.Create                                                  
+						oDescription("xpath").value = "//DIV[@role='listbox']//DIV[text()='" & sValue & "']/MAT-ICON"
+						oDescription("visible").value = True
+						
+						'Clicks on the entry
+						If oParent.WebElement(oDescription).Exist(2) Then
+							bReturn = oParent.WebElement(oDescription).Click
+							bFound = True
+						End If
+						If Not bFound Then
+							Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Expected option not found!"
+						End If
+						
+						Set oDescription = Nothing
+						Set oParent = Nothing
+					Else
+						Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown parameter for the given keyword!"
+					End If
+				Case Else
+					Reporter.ReportEvent micFail,  Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown Keyword found!"
+			End Select
+		End If
+	End If
+	
+	WebEditHandleParamDropDown = bReturn
+End Function
+RegisterUserFunc "WebEdit","HandleParamEditDropDown","WebEditHandleParamDropDown"
+
+'Handles all the dropdowns on the website
+Function HandleParamDropDownWebElement(oObject, sParameter)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "HandleParamDropDownWebElement"
+	Dim bReturn : bReturn = False
+	Dim bFound : bFound = False
+	
+	regexForKeywords = "<([a-zA-Z0-9]+)(.*)>"
+	regexForParameterList = "\s([a-zA-Z0-9]+)=""""([a-zA-Z0-9\säöüÄÖÜß\/.-]+)"""""
+	
+	'Gets the keyword from the parameter through regexp comparison 
+	sKeyWord = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 1)
+	
+	'Function ends if the keyword is skip
+	If sKeyWord = "skip" Then
+		HandleParamDropDownWebElement = True
+		Exit Function
+	Else
+		'Gets the Attribute with its value
+		sParameterlist = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 2)
+		'Gets the number of successful comparisons found
+		iCount = HLP_STRING_Output_RegexMatchCount(sParameterlist, regexForParameterList)
+		Dim dictParameters 
+		Set dictParameters = CreateObject("Scripting.Dictionary")
+		
+		'Saves the Attribute and its Value as Key Value in a Dictionary
+		For Iterator = 1 To iCount Step 1
+			key = HLP_STRING_Output_RegexGroup(sParameter, regexForParameterList, Iterator, 1)
+			value = HLP_STRING_Output_RegexGroup(sParameter, regexForParameterList, Iterator, 2)
+			dictParameters.add key, value
+		Next
+		
+		'Gets the keys stored in the dictionary
+		sAttributes = dictparameters.Keys
+		'Gets the first key
+		sAttribute = sAttributes(0)
+		
+		'Gets the value stored in the dictionary against that key
+		sValue = dictparameters.Item(sAttribute)
+		
+		If Len(sKeyWord) = 0 Then
+			'No Keyword -> Error
+			Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Keyword not found!"
+		Else
+			Select Case sKeyWord
+				Case "select"
+					If sAttribute = "text" Then
+						Dim oParent, oDescription
+						
+						'Click to open the list
+						KeywordClick oObject, ""
+						
+						'Gets the parent element from the object hierarchy
+						Set oParent = oObject.GetTOProperty("Parent")
+						
+						oParent.Sync
+						
+						Wait(2)
+						
+						'Gets the properties of the input entry that should be choosen from the list
+						Set oDescription = Description.Create
+						oDescription("innertext").value = sValue
+						oDescription("innertext").regularexpression = False
+						oDescription("html tag").value = "(DIV|LI|SPAN)"
+						oDescription("visible").value = True
+						
+						'Clicks on the entry
+						If oParent.WebElement(oDescription).Exist(2) Then
+							bReturn = oParent.WebElement(oDescription).Click
+							bFound = True
+						End If
+						
+						'Gets the properties of the input entry that should be choosen from the list-Variant 2
+						If Not bFound Then
+							oDescription("role").value = "option"
+							
+							If oParent.WebElement(oDescription).Exist(2) Then
+								bReturn = oParent.WebElement(oDescription).Click
+								bFound = True
+							End If
+						End If
+						
+						'Gets the properties of the input entry that should be choosen from the list-Variant 3
+						If Not bFound Then
+							oDescription("role").value = ""
+							oDescription("html tag").value = "SPAN"
+							
+							If oParent.WebElement(oDescription).Exist(2) Then
+								bReturn = oParent.WebElement(oDescription).Click
+								bFound = True
+							End If
+						End If
+						
+						If Not bFound Then
+							Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Expected option not found!"
+						End If
+						
+						Set oDescription = Nothing
+						Set oParent = Nothing
+					Else
+						Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown parameter for the given keyword!"
+					End If
+				Case Else
+					Reporter.ReportEvent micFail,  Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown Keyword found!"
+			End Select
+		End If
+	End If
+	
+	HandleParamDropDownWebElement = bReturn
+End Function
+RegisterUserFunc "WebElement","HandleParamDropDown","HandleParamDropDownWebElement"
+RegisterUserFunc "WebButton","HandleParamDropDown","HandleParamDropDownWebElement"
+'RegisterUserFunc "WebEdit","HandleParamDropDown","HandleParamDropDownWebElement"
+
+'Handles all checkboxes/elements inside a table
+Function WebTableHandleParam(oObject, sParameter)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "WebTableHandleParam"
+	Dim bReturn : bReturn = False
+	
+	regexForKeywords = "<([a-zA-Z0-9]+)(.*)>"
+	regexForParameterList = "\s([a-zA-Z0-9]+)=""""([a-zA-Z0-9 ]+)"""""
+	
+	'Gets the keyword from the parameter through regexp comparison
+	sKeyWord = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 1)
+	
+	'Function ends if the keyword is skip
+	If sKeyWord = "skip" Then
+		WebTableHandleParam = True
+		Exit Function
+	Else
+		'Gets the Attribute with its value
+		sParameterlist = HLP_STRING_Output_RegexGroup(sParameter, regexForKeywords, 1, 2)
+		'Gets the number of successful comparisons found
+		iCount = HLP_STRING_Output_RegexMatchCount(sParameterlist, regexForParameterList)
+		Dim dictParameters 
+		Set dictParameters = CreateObject("Scripting.Dictionary")
+		
+		'Saves the Attribute and its Value as Key Value in a Dictionary
+		For Iterator = 1 To iCount Step 1
+			key = HLP_STRING_Output_RegexGroup(sParameter, regexForParameterList, Iterator, 1)
+			value = HLP_STRING_Output_RegexGroup(sParameter, regexForParameterList, Iterator, 2)
+			dictParameters.add key, value
+		Next
+		
+		'Gets the keys stored in the dictionary
+		sAttributes = dictparameters.Keys
+		'Gets the first key
+		sAttribute = sAttributes(0)
+		
+		'Gets the value stored in the dictionary against that key
+		sValue = dictparameters.Item(sAttribute)
+		If Len(sKeyWord) = 0 Then
+			'No Keyword -> Error
+			Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Keyword not found!"
+		Else
+			Select Case sKeyWord
+				Case "click"
+					If sAttribute = "row" Then
+						'Click on the element
+						KeywordClick oObject, ""
+					Else
+						Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown parameter for the given keyword!"
+					End If
+				Case "search"
+					If sAttribute = "text" Then
+						'Click on the element
+						GetIndexOfText oObject, dictParameters
+					Else
+						Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown parameter for the given keyword!"
+					End If
+				Case Else
+					Reporter.ReportEvent micFail,  Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unknown Keyword found!"
+			End Select
+		End If
+	End If
+	
+	WebTableHandleParam = bReturn
+End Function
+RegisterUserFunc "WebCheckBox","HandleParamTable","WebTableHandleParam"
+RegisterUserFunc "WebElement","HandleParamTable","WebTableHandleParam"
+RegisterUserFunc "WebTable","HandleParamTable","WebTableHandleParam"
+
+'Sets the input value into an edit field
+Function KeywordSet(oObject, dictparameters)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "KeywordSet"
+	Dim bReturn : bReturn = False
+	Dim sValue, sAttribute
+	
+	'Gets the keys stored in the dictionary
+	sAttributes = dictparameters.Keys
+	'Gets the first key
+	sAttribute = sAttributes(0)
+	
+	Select Case sAttribute
+		Case "text", "password", "number"
+			'Gets the value stored in the dictionary against that key
+			sValue = dictparameters.Item(sAttribute)
+		Case Else
+			Reporter.ReportEvent micFail, "SetKeyword", "Unknown Attribute found!"
+			sAttribute = ""
+			bReturn = False
+	End Select
+	
+	'Writes the value in the editfield
+	If sAttribute = "password" Then
+		oObject.SetSecure sValue
+		bReturn = True
+	Else
+		oObject.Set sValue
+		bReturn = True
+	End If
+	
+	KeywordSet = bReturn
+End Function
+
+'Clicks on the object in the website
+Function KeywordClick(oObject, sMode)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "KeywordClick"
+	Dim bReturn : bReturn = False
+	
+	If sMode = "" Then
+		sMode = "standard"
+	End If
+	
+	Select Case sMode
+		Case "standard"
+			oObject.Click
+			bReturn = True
+		Case Else
+			Reporter.ReportEvent micFail, Environment("TestName"), vbCRLF & FUNCTIONNAME & vbCRLF, "Unsupported click mode!"
+			bReturn = False
+	End Select
+	
+	KeywordClick = bReturn
+End Function
+
+Function KeywordCompare(oObject, sAttribute, sParameter, sUFTAttribute, sValue)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "KeywordCompare"
+	Dim bReturn : bReturn = False
+	
+	Select Case sAttribute
+		Case "regexp"
+			bReturn = CheckRegExp(oObject, sValue, sUFTAttribute)
+		Case "text"
+			bReturn = CheckText(oObject, sValue, sUFTAttribute)
+		Case Else
+			Reporter.ReportEvent micFail, "SetKeyword", "Unknown Attribute found!"
+			bReturn = False
+	End Select
+	
+	KeywordCompare = bReturn
+End Function
+
+Function CheckRegExp(oObject, sValue, sAttribute)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "CheckRegExp"
+	Dim bReturn : bReturn = False
+	Dim sText
+	
+	sText = Trim(oObject.GetROProperty(sAttribute))
+	
+	If ValidateString(sText, sValue) Then
+		Reporter.ReportEvent micPass, Environment("TestName"), "Function '" & FUNCTIONNAME & "'," & vbCRLF & " Object '" & oObject.ToString & "' Text '" & sValue & "' found."
+		bReturn = True
+	Else
+		Reporter.ReportEvent micFail, Environment("TestName"), "Function '" & FUNCTIONNAME & "'," & vbCRLF & " Object '" & oObject.ToString & "' Expected text '" & sValue & "' NOT found! Text '" & sText & "' was read."
+		bReturn = False
+	End If
+End Function
+
+Function CheckText(oObject, sExpectedValue, sAttribute)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "CheckText"
+	Dim bReturn : bReturn = False
+	Dim sActual
+	
+	sActual = oObject.getROProperty(sAttribute)
+	
+	If StrComp(Trim(sExpectedValue), Trim(sActual)) = 0 Then
+		Reporter.ReportEvent micPass, Environment("TestName"), "Function '" & FUNCTIONNAME & "'," & vbCRLF & " Object '" & oObject.ToString & "' Text '" & sExpectedValue & "' found."
+		bReturn = True
+	Else 
+		Reporter.ReportEvent micFail, Environment("TestName"), "Function '" & FUNCTIONNAME & "'," & vbCRLF & " Object '" & oObject.ToString & "' Expected text '" & sExpectedValue & "' NOT found! Text '" & sActual & "' was read."
+		bReturn = False
+	End If
+	
+	CheckText = bReturn
+End Function
+
+Function ValidateString(byVal sText, byVal sRegExpPattern)
+	Dim oRegExp
+	
+	Set oRegExp = New RegExp
+	oRegExp.Global = True
+	'oRegExp.IgnoreCase = bCaseSensitive
+	oRegExp.Pattern = sRegExpPattern
+	
+	ValidateString = oRegExp.Test(sText)
+	
+	Set oRegExp = Nothing
+End Function
+
+Function GetIndexOfText(oObject, dictParameters)
+	Dim FUNCTIONNAME : FUNCTIONNAME = "GetIndexOfText"
+	Dim bReturn : bReturn = False
+	Dim sValue, sAttribute
+	Dim iRowNum, iIndexNum
+	
+	'Gets the keys stored in the dictionary
+	sAttributes = dictparameters.Keys
+	'Gets the first key
+	sAttribute = sAttributes(0)
+	
+	Select Case sAttribute
+		Case "text"
+			'Gets the value stored in the dictionary against that key
+			sValue = dictparameters.Item(sAttribute)
+		Case Else
+			Reporter.ReportEvent micFail, "GetIndexOfText", "Unknown Attribute found!"
+			sAttribute = ""
+			bReturn = False
+	End Select
+	
+	iRowNum = oObject.GetRowWithCellText(sValue)
+	
+	bReturn = True
+	
+	GetIndexOfText = bReturn
+End Function
+
+''' <summary>
+''' Gibt einen bestimmten RegexMatch oder eine RegexGroup aus, nachdem sie auf einen String angewendet wurde.
+''' </summary>
+''' <param name="strContent" type="String">Zu durchsuchender Text</param>
+''' <param name="strPattern" type="String">Regex Muster, mit welchem gesucht wird. Enthält die Regex keine Gruppen, wird immer der komplette Match ausgegeben.</param>
+''' <param name="iMatch" type="Integer">Der wievielte Match (1,2,.. für normale Suche; -1,-2,.. für Rückwärtssuche; iMatch > Matchanzahl resultiert in leerem String).</param>
+''' <param name="iGroup" type="Integer">Die auszugebende Regex-Gruppe (1,2,.. für normale Suche; -1,-2,.. für Rückwärtssuche; 0 für den kompletten Match; iGroup > Gruppenanzahl resultiert in leerem String)</param>
+''' <returns type="String"> String with Group/Match content of the given RegEx ; Empty string if wrong parameter values or no match</returns>
+ 
+Public Function HLP_STRING_Output_RegexGroup(ByVal strContent, ByVal strPattern, ByVal iMatch, ByVal iGroup)
+
+   Dim Matches, strOutput, iIndex
+
+    'Parameter checks
+
+    If strContent <> "" And strPattern <> "" And IsNumeric(iMatch) And IsNumeric(iGroup) Then
+
+        'Get all matches
+
+        Set Matches = HLP_STRING_getGlobalRegExpObj(strPattern, True).Execute(strContent)   ' Execute search.
+
+        'If matched
+
+        If Matches.Count > 0 Then
+
+            'Adjust special case iMatch=0 to first match
+
+            If iMatch = 0 Then iMatch = 1
+
+            'Match search index, initially backwards search
+
+            iIndex = Matches.Count+iMatch
+
+            'overwrite index for forward search
+
+            If iMatch > 0 Then iIndex = iMatch-1
+
+            'iMatch exceeds actual matches? -> empty string
+
+            If iIndex <= Matches.Count-1 Then
+
+                'Groups used in Regex and demanded? -> Output selected group
+
+                If Matches(iIndex).submatches.Count > 0 And iGroup <> 0 Then
+
+                    'Adjust iGroup value for backwards search
+
+                    If iGroup < 0 Then 
+
+                        iGroup = Matches(iIndex).submatches.Count+iGroup+1
+
+                    End If
+
+                    'Output correct group, if group available
+
+                    If iGroup <= Matches(iIndex).submatches.count Then 
+
+                        strOutput = Matches(iIndex).submatches(iGroup-1)
+
+                    End If
+
+                Else
+
+                    'Output whole match
+
+                    strOutput = Matches(iIndex).Value
+
+                End If
+
+            End If
+
+        End If
+
+    End If
+
+    'Return value
+
+    HLP_String_Output_RegexGroup = strOutput
+
+End Function
+
+''' <summary>
+'''  Erstelle ein globales RegExp Objekt
+''' </summary>
+''' <param name="pstrPattern" type="String"></param>
+''' <param name="pblnIgnoreCase" type="Boolean"></param>
+''' <returns type="RegExp">das Erstelle RegExp Objekt</returns>
+Function HLP_STRING_getGlobalRegExpObj(ByVal pstrPattern, ByVal pblnIgnoreCase)
+	Dim vergleich
+
+    ' Daraus einen  Regex erstellen
+	If  pstrPattern = "" Then
+		pstrPattern = "^$"
+	End If
+
+    	Set vergleich = New RegExp
+
+	With vergleich
+		.Pattern = pstrPattern
+		.Global = True
+		.IgnoreCase = pblnIgnoreCase
+	End With
+
+	Set HLP_STRING_getGlobalRegExpObj = vergleich
+End Function
+
+''' <summary>
+''' Outputs the amount of matches on a text by a regex
+''' </summary>
+''' <param name="strContent" type="String">Zu durchsuchender String</param>
+''' <param name="strPattern" type="String">Muster, mit welchem gesucht wird.</param>
+''' <returns type="Integer"> Number of matches; 0, if no match or any empty parameter input</returns>
+Public Function HLP_STRING_Output_RegexMatchCount(ByVal strContent, ByVal strPattern)
+    Dim Matches, iOutput
+    iOutput = 0
+    'Parameter checks
+    If strContent <> "" And strPattern <> "" Then
+        'Get all matches
+        Set Matches = HLP_STRING_getGlobalRegExpObj(strPattern, True).Execute(strContent)   ' Execute search.
+        iOutput = Matches.Count
+    End If
+    HLP_STRING_Output_RegexMatchCount = iOutput
+End Function
